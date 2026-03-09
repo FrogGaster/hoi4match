@@ -1,9 +1,11 @@
 import asyncio
 import logging
+import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramUnauthorizedError
 
 import config
 from database.db import init_db
@@ -30,7 +32,14 @@ async def main():
     setup_weekly_digest(bot, config.DB_PATH)
 
     logger.info("Bot starting...")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    except TelegramUnauthorizedError:
+        logger.error(
+            "Invalid BOT_TOKEN. Check: 1) Token in .env / Render env vars "
+            "2) Token from @BotFather 3) No extra spaces or quotes"
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
