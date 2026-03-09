@@ -22,6 +22,10 @@ class ReportCallback(CallbackData, prefix="report"):
     user_id: int  # кого репортим
 
 
+class EditProfileCallback(CallbackData, prefix="edit"):
+    field: str  # nickname, world_level, main_dps, server, description, photo
+
+
 def get_response_keyboard(liker_user_id: int) -> InlineKeyboardMarkup:
     """Кнопки ответа на лайк: взаимный лайк или отказ."""
     builder = InlineKeyboardBuilder()
@@ -57,6 +61,21 @@ def get_action_keyboard(candidate_user_id: int) -> InlineKeyboardMarkup:
         )
     )
     builder.adjust(2, 1)
+    return builder.as_markup()
+
+
+def get_edit_profile_keyboard() -> InlineKeyboardMarkup:
+    """Кнопки редактирования профиля."""
+    builder = InlineKeyboardBuilder()
+    builder.add(
+        InlineKeyboardButton(text="👤 Ник", callback_data=EditProfileCallback(field="nickname").pack()),
+        InlineKeyboardButton(text="📊 Опыт", callback_data=EditProfileCallback(field="world_level").pack()),
+        InlineKeyboardButton(text="🌍 Нация", callback_data=EditProfileCallback(field="main_dps").pack()),
+        InlineKeyboardButton(text="🎮 Режим", callback_data=EditProfileCallback(field="server").pack()),
+        InlineKeyboardButton(text="📝 О себе", callback_data=EditProfileCallback(field="description").pack()),
+        InlineKeyboardButton(text="📸 Фото", callback_data=EditProfileCallback(field="photo").pack()),
+    )
+    builder.adjust(2, 2, 2)
     return builder.as_markup()
 
 
