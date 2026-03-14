@@ -68,6 +68,24 @@ async def send_candidate(message_or_callback, user_id: int, server_filter: str |
     """Send next candidate or 'no one left' message."""
     from aiogram.types import Message, CallbackQuery
 
+    async def _update_callback_message(text: str, reply_markup=None) -> None:
+        """Safely update callback source message regardless of content type."""
+        msg = message_or_callback.message
+        if msg is None:
+            await message_or_callback.bot.send_message(chat_id, text, reply_markup=reply_markup)
+            return
+
+        try:
+            if msg.text is not None:
+                await msg.edit_text(text, reply_markup=reply_markup)
+            elif msg.caption is not None:
+                await msg.edit_caption(caption=text, reply_markup=reply_markup)
+            else:
+                await msg.delete()
+                await message_or_callback.bot.send_message(chat_id, text, reply_markup=reply_markup)
+        except Exception:
+            await message_or_callback.bot.send_message(chat_id, text, reply_markup=reply_markup)
+
     views_today = await get_daily_views_count(user_id)
     if views_today >= config.DAILY_VIEW_LIMIT:
         text = (
@@ -75,7 +93,8 @@ async def send_candidate(message_or_callback, user_id: int, server_filter: str |
             f"Ты просмотрел {views_today} анкет. Лимит: {config.DAILY_VIEW_LIMIT}. Загляни завтра! 🌅"
         )
         if isinstance(message_or_callback, CallbackQuery):
-            await message_or_callback.message.edit_text(text)
+            chat_id = message_or_callback.message.chat.id
+            await _update_callback_message(text)
         else:
             await message_or_callback.answer(text)
         return
@@ -93,7 +112,7 @@ async def send_candidate(message_or_callback, user_id: int, server_filter: str |
             "Ты просмотрел всех! Загляни позже или позови друзей 🎖"
         )
         if is_callback:
-            await message_or_callback.message.edit_text(text)
+            await _update_callback_message(text)
         else:
             await message_or_callback.answer(text)
         return
@@ -110,7 +129,7 @@ async def send_candidate(message_or_callback, user_id: int, server_filter: str |
                 reply_markup=kb
             )
         else:
-            await message_or_callback.message.edit_text(text, reply_markup=kb)
+            await _update_callback_message(text, reply_markup=kb)
     else:
         if candidate.photo_file_id:
             await message_or_callback.answer_photo(
@@ -304,7 +323,7 @@ async def process_response(callback: CallbackQuery, callback_data: ResponseCallb
             else:
                 await callback.bot.send_message(liker_telegram_id, msg_for_liker, reply_markup=kb_liker)
 
-        if respondent_profile.photo_file_id:
+        if liker_profile.photo_file_id:
             await callback.bot.send_photo(
                 respondent_telegram_id,
                 liker_profile.photo_file_id,

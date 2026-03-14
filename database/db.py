@@ -107,21 +107,20 @@ async def get_or_create_user(telegram_id: int) -> User:
     """Get user by telegram_id or create new one."""
     async with aiosqlite.connect(config.DB_PATH) as db:
         db.row_factory = aiosqlite.Row
+        created_at = datetime.utcnow().isoformat()
+        await db.execute(
+            "INSERT OR IGNORE INTO users (telegram_id, created_at) VALUES (?, ?)",
+            (telegram_id, created_at)
+        )
+        await db.commit()
         cursor = await db.execute(
             "SELECT id, telegram_id, created_at FROM users WHERE telegram_id = ?",
             (telegram_id,)
         )
         row = await cursor.fetchone()
-        if row:
-            return User(id=row["id"], telegram_id=row["telegram_id"], created_at=row["created_at"])
-
-        created_at = datetime.utcnow().isoformat()
-        cursor = await db.execute(
-            "INSERT INTO users (telegram_id, created_at) VALUES (?, ?)",
-            (telegram_id, created_at)
-        )
-        await db.commit()
-        return User(id=cursor.lastrowid, telegram_id=telegram_id, created_at=created_at)
+        if not row:
+            raise RuntimeError(f"Failed to get or create user with telegram_id={telegram_id}")
+        return User(id=row["id"], telegram_id=row["telegram_id"], created_at=row["created_at"])
 
 
 async def get_user_by_telegram_id(telegram_id: int) -> Optional[User]:
