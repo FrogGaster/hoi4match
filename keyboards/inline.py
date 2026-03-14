@@ -23,7 +23,16 @@ class ReportCallback(CallbackData, prefix="report"):
 
 
 class EditProfileCallback(CallbackData, prefix="edit"):
-    field: str  # nickname, world_level, main_dps, server, description, photo
+    field: str
+
+
+class HideMatchCallback(CallbackData, prefix="hide"):
+    user_id: int
+
+
+class AdminReportCallback(CallbackData, prefix="admrep"):
+    action: str  # skip | ban
+    report_id: int
 
 
 def get_response_keyboard(liker_user_id: int) -> InlineKeyboardMarkup:
@@ -76,6 +85,23 @@ def get_edit_profile_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📸 Фото", callback_data=EditProfileCallback(field="photo").pack()),
     )
     builder.adjust(2, 2, 2)
+    return builder.as_markup()
+
+
+def get_match_keyboard(profile_user_id: int, username: str | None) -> InlineKeyboardMarkup:
+    """Кнопки под матчем: Написать + Убрать."""
+    builder = InlineKeyboardBuilder()
+    if username:
+        builder.add(
+            InlineKeyboardButton(text="✉️ Написать в Telegram", url=f"https://t.me/{username}")
+        )
+    builder.add(
+        InlineKeyboardButton(
+            text="🚫 Убрать из матчей",
+            callback_data=HideMatchCallback(user_id=profile_user_id).pack()
+        )
+    )
+    builder.adjust(1)
     return builder.as_markup()
 
 

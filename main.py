@@ -11,12 +11,14 @@ import config
 from database.db import init_db
 from handlers import setup_routers
 from middlewares.subscription import SubscriptionMiddleware
-from tasks import setup_weekly_digest
+from tasks import setup_scheduled_tasks
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+_handlers = [logging.StreamHandler()]
+try:
+    _handlers.append(logging.FileHandler(config.LOG_FILE, encoding="utf-8"))
+except OSError:
+    pass
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", handlers=_handlers)
 logger = logging.getLogger(__name__)
 
 
@@ -29,7 +31,7 @@ async def main():
     router.callback_query.middleware(SubscriptionMiddleware())
     dp.include_router(router)
 
-    setup_weekly_digest(bot, config.DB_PATH)
+    setup_scheduled_tasks(bot, config.DB_PATH)
 
     logger.info("Bot starting...")
     try:

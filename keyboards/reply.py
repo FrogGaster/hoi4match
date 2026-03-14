@@ -9,6 +9,9 @@ def get_main_menu() -> ReplyKeyboardMarkup:
     builder.button(text="👤 Мой профиль")
     builder.button(text="💕 Мои матчи")
     builder.button(text="📊 Статистика")
+    builder.button(text="📜 История")
+    builder.button(text="📤 Поделиться")
+    builder.button(text="⚙️ Настройки")
     builder.adjust(1)
     return builder.as_markup(resize_keyboard=True)
 

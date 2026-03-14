@@ -7,6 +7,7 @@ from database.db import get_user_by_telegram_id, get_profile_by_user_id, update_
 from keyboards.reply import get_main_menu, get_skip_keyboard
 from keyboards.inline import get_edit_profile_keyboard, get_exp_keyboard, EditProfileCallback, ExpCallback
 from states import EditProfileStates
+from utils import escape_html
 
 router = Router()
 
@@ -18,11 +19,11 @@ def format_profile_text(profile) -> str:
     return (
         "🎖 <b>Твой профиль</b>\n"
         "━━━━━━━━━━━━━━\n"
-        f"👤 Ник: <b>{profile.nickname}</b>\n"
+        f"👤 Ник: <b>{escape_html(profile.nickname)}</b>\n"
         f"📊 Опыт: {exp}\n"
-        f"🌍 Любимая нация: {profile.main_dps}\n"
-        f"🎮 Режим/моды: {profile.server}\n"
-        f"📝 О себе: {profile.description or '—'}\n\n"
+        f"🌍 Любимая нация: {escape_html(profile.main_dps)}\n"
+        f"🎮 Режим/моды: {escape_html(profile.server)}\n"
+        f"📝 О себе: {escape_html(profile.description or '—')}\n\n"
         "✏️ Что изменить?"
     )
 

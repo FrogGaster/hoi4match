@@ -1,3 +1,4 @@
+import asyncio
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
@@ -10,6 +11,7 @@ from database.db import (
     add_interaction,
     check_mutual_like,
     get_telegram_id_by_user_id,
+    get_telegram_ids_by_user_ids,
     increment_daily_view,
     get_daily_views_count,
     add_report,
@@ -18,44 +20,47 @@ from database.db import (
 from keyboards.inline import (
     get_action_keyboard,
     get_response_keyboard,
+    get_match_keyboard,
     ActionCallback,
     ResponseCallback,
     ReportCallback,
+    HideMatchCallback,
 )
 from states import ReportStates
+from utils import escape_html
 
 import config
 
 router = Router()
 
+EXP_NAMES = {1: "🌱 Новичок", 2: "📖 Мало часов", 3: "⚖️ Средний", 4: "⭐ Опытный", 5: "🏆 Ветеран"}
+
 
 def format_match_contact(profile, username: str | None) -> str:
     """Полная карточка для матча с контактами."""
-    exp_names = {1: "🌱 Новичок", 2: "📖 Мало часов", 3: "⚖️ Средний", 4: "⭐ Опытный", 5: "🏆 Ветеран"}
-    exp = exp_names.get(profile.world_level, str(profile.world_level))
-    contact = f"✉️ Написать: @{username}\n🔗 t.me/{username}" if username else "⚠️ У пользователя нет @username. Пусть напишет первым или добавит username в Telegram."
+    exp = EXP_NAMES.get(profile.world_level, str(profile.world_level))
+    contact = f"✉️ Написать: @{username}\n🔗 t.me/{username}" if username else "⚠️ У пользователя нет @username. Пусть напишет первым."
     return (
         "💕 <b>Матч! Контакт тиммейта:</b>\n"
         "━━━━━━━━━━━━━━\n"
-        f"👤 <b>{profile.nickname}</b>\n"
-        f"📊 {exp} · 🌍 {profile.main_dps}\n"
-        f"🎮 {profile.server}\n"
-        f"📝 {profile.description or '—'}\n\n"
+        f"👤 <b>{escape_html(profile.nickname)}</b>\n"
+        f"📊 {exp} · 🌍 {escape_html(profile.main_dps)}\n"
+        f"🎮 {escape_html(profile.server)}\n"
+        f"📝 {escape_html(profile.description or '—')}\n\n"
         f"{contact}"
     )
 
 
 def format_profile_card(profile) -> str:
-    exp_names = {1: "🌱 Новичок", 2: "📖 Мало часов", 3: "⚖️ Средний", 4: "⭐ Опытный", 5: "🏆 Ветеран"}
-    exp = exp_names.get(profile.world_level, str(profile.world_level))
+    exp = EXP_NAMES.get(profile.world_level, str(profile.world_level))
     return (
         "🎖 <b>Кандидат</b>\n"
         "━━━━━━━━━━━━━━\n"
-        f"👤 <b>{profile.nickname}</b>\n"
+        f"👤 <b>{escape_html(profile.nickname)}</b>\n"
         f"📊 {exp}\n"
-        f"🌍 {profile.main_dps}\n"
-        f"🎮 {profile.server}\n"
-        f"📝 {profile.description or '—'}"
+        f"🌍 {escape_html(profile.main_dps)}\n"
+        f"🎮 {escape_html(profile.server)}\n"
+        f"📝 {escape_html(profile.description or '—')}"
     )
 
 
@@ -155,9 +160,13 @@ async def process_action(callback: CallbackQuery, callback_data: ActionCallback)
     await update_last_seen(callback.from_user.id)
 
     if callback_data.action == "like":
-        target_telegram_id = await get_telegram_id_by_user_id(to_user_id)
-        if target_telegram_id:
-            liker_profile = await get_profile_by_user_id(from_user_id)
+        from database.db import get_preferences
+        prefs, target_telegram_id, liker_profile = await asyncio.gather(
+            get_preferences(to_user_id),
+            get_telegram_id_by_user_id(to_user_id),
+            get_profile_by_user_id(from_user_id),
+        )
+        if prefs.get("like_notifications_on", True) and target_telegram_id:
             liker_username = callback.from_user.username
             name = f"@{liker_username}" if liker_username else liker_profile.nickname
             text = (
@@ -252,17 +261,25 @@ async def process_response(callback: CallbackQuery, callback_data: ResponseCallb
         return callback.message.edit_text(new_text, reply_markup=None)
 
     if callback_data.action == "like":
-        liker_telegram_id = await get_telegram_id_by_user_id(liker_id)
+        liker_telegram_id, liker_profile, respondent_profile = await asyncio.gather(
+            get_telegram_id_by_user_id(liker_id),
+            get_profile_by_user_id(liker_id),
+            get_profile_by_user_id(respondent_id),
+        )
         respondent_telegram_id = callback.from_user.id
 
-        liker_profile = await get_profile_by_user_id(liker_id)
-        respondent_profile = await get_profile_by_user_id(respondent_id)
+        async def _get_chat_safe(bot, tid):
+            if not tid:
+                return None
+            try:
+                return await bot.get_chat(tid)
+            except Exception:
+                return None
 
-        try:
-            liker_chat = await callback.bot.get_chat(liker_telegram_id)
-            respondent_chat = await callback.bot.get_chat(respondent_telegram_id)
-        except Exception:
-            liker_chat = respondent_chat = None
+        liker_chat, respondent_chat = await asyncio.gather(
+            _get_chat_safe(callback.bot, liker_telegram_id),
+            _get_chat_safe(callback.bot, respondent_telegram_id),
+        )
 
         msg_for_liker = format_match_contact(
             respondent_profile,
@@ -273,24 +290,29 @@ async def process_response(callback: CallbackQuery, callback_data: ResponseCallb
             liker_chat.username if liker_chat else None
         )
 
+        kb_liker = get_match_keyboard(respondent_id, respondent_chat.username if respondent_chat else None)
+        kb_respondent = get_match_keyboard(liker_id, liker_chat.username if liker_chat else None)
+
         if liker_telegram_id:
             if respondent_profile.photo_file_id:
                 await callback.bot.send_photo(
                     liker_telegram_id,
                     respondent_profile.photo_file_id,
-                    caption=msg_for_liker
+                    caption=msg_for_liker,
+                    reply_markup=kb_liker
                 )
             else:
-                await callback.bot.send_message(liker_telegram_id, msg_for_liker)
+                await callback.bot.send_message(liker_telegram_id, msg_for_liker, reply_markup=kb_liker)
 
         if respondent_profile.photo_file_id:
             await callback.bot.send_photo(
                 respondent_telegram_id,
                 liker_profile.photo_file_id,
-                caption=msg_for_respondent
+                caption=msg_for_respondent,
+                reply_markup=kb_respondent
             )
         else:
-            await callback.bot.send_message(respondent_telegram_id, msg_for_respondent)
+            await callback.bot.send_message(respondent_telegram_id, msg_for_respondent, reply_markup=kb_respondent)
 
         await _edit_notification(
             "💕 <b>Матч!</b> Контакт твоего тиммейта — в сообщении ниже 👇"
@@ -316,6 +338,7 @@ async def cmd_matches(message: Message):
         return
 
     from database.db import get_mutual_likes
+
     mutuals = await get_mutual_likes(user.id)
     if not mutuals:
         await message.answer(
@@ -324,7 +347,36 @@ async def cmd_matches(message: Message):
         )
         return
 
-    lines = ["💕 <b>Твои матчи</b>\n━━━━━━━━━━━━━━\n"]
-    for p in mutuals:
-        lines.append(f"• 👤 {p.nickname} — {p.main_dps}")
-    await message.answer("\n".join(lines))
+    from keyboards.inline import get_match_keyboard
+
+    tid_map = await get_telegram_ids_by_user_ids([p.user_id for p in mutuals])
+
+    async def _username(tid):
+        if not tid:
+            return None
+        try:
+            chat = await message.bot.get_chat(tid)
+            return chat.username
+        except Exception:
+            return None
+
+    usernames = await asyncio.gather(*[_username(tid_map.get(p.user_id)) for p in mutuals])
+    await message.answer("💕 <b>Твои матчи</b> 👇")
+
+    for p, username in zip(mutuals, usernames):
+        kb = get_match_keyboard(p.user_id, username)
+        text = f"👤 <b>{escape_html(p.nickname)}</b> — {escape_html(p.main_dps)}"
+        await message.answer(text, reply_markup=kb)
+
+
+@router.callback_query(HideMatchCallback.filter())
+async def hide_match(callback: CallbackQuery, callback_data: HideMatchCallback):
+    user = await get_user_by_telegram_id(callback.from_user.id)
+    if not user:
+        await callback.answer()
+        return
+
+    from database.db import hide_match as db_hide_match
+    await db_hide_match(user.id, callback_data.user_id)
+    await callback.message.edit_text("✅ Убрано из матчей", reply_markup=None)
+    await callback.answer("Скрыто")

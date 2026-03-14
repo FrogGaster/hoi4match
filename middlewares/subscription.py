@@ -2,7 +2,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, TelegramObject
 
 import config
-from database.db import get_user_by_telegram_id, is_banned
+from database.db import get_user_and_ban_status
 
 
 def get_subscribe_keyboard() -> InlineKeyboardMarkup:
@@ -37,8 +37,8 @@ class SubscriptionMiddleware(BaseMiddleware):
         if not bot:
             return await handler(event, data)
 
-        user = await get_user_by_telegram_id(user_id)
-        if user and await is_banned(user.id):
+        user, is_banned_user = await get_user_and_ban_status(user_id)
+        if user and is_banned_user:
             text = "⛔ Доступ запрещён. Ты заблокирован."
             if isinstance(event, Message):
                 await event.answer(text)
@@ -57,8 +57,8 @@ class SubscriptionMiddleware(BaseMiddleware):
 
         if isinstance(event, Message):
             await event.answer(text, reply_markup=get_subscribe_keyboard())
-        elif isinstance(event, CallbackQuery):
+        elif isinstance(event, CallbackQuery) and event.message:
             await event.answer()
             await event.message.answer(text, reply_markup=get_subscribe_keyboard())
 
-        return  # Не вызываем handler — блокируем
+        return

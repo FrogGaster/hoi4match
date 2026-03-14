@@ -14,6 +14,10 @@ class ReportStates(StatesGroup):
     reason = State()
 
 
+class DeleteAccountStates(StatesGroup):
+    confirm = State()
+
+
 class EditProfileStates(StatesGroup):
     choosing_field = State()
     nickname = State()

@@ -1,4 +1,4 @@
-"""Админ-панель: статистика, рассылка, бан."""
+"""Админ-панель: статистика, рассылка, бан, жалобы."""
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
@@ -11,7 +11,13 @@ from database.db import (
     ban_user_by_telegram_id,
     get_user_by_telegram_id,
     get_profile_by_user_id,
+    get_telegram_id_by_user_id,
+    get_pending_reports,
+    resolve_report,
+    unban_user,
+    get_daily_stats,
 )
+from keyboards.inline import AdminReportCallback
 
 router = Router()
 
@@ -36,9 +42,92 @@ async def cmd_admin(message: Message):
         f"⛔ Забанено: {stats['total_banned']}\n\n"
         "Команды:\n"
         "/admin_broadcast - Рассылка\n"
-        "/admin_ban [id] - Забанить"
+        "/admin_ban [id] - Забанить\n"
+        "/admin_unban [id] - Разбанить\n"
+        "/admin_reports - Жалобы\n"
+        "/admin_stats - Статистика по дням"
     )
     await message.answer(text)
+
+
+@router.message(Command("admin_reports"))
+async def cmd_reports(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+
+    reports = await get_pending_reports()
+    if not reports:
+        await message.answer("Нет новых жалоб")
+        return
+
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    for r in reports[:10]:
+        text = (
+            f"🚩 Жалоба #{r['id']}\n"
+            f"На: {r['reported_nick']} (id {r['reported_user_id']})\n"
+            f"От: {r['reporter_nick']}\n"
+            f"Причина: {r['reason'] or '—'}\n"
+        )
+        builder = InlineKeyboardBuilder()
+        builder.button(text="✅ Пропустить", callback_data=AdminReportCallback(action="skip", report_id=r["id"]).pack())
+        builder.button(text="⛔ Забанить", callback_data=AdminReportCallback(action="ban", report_id=r["id"]).pack())
+        builder.adjust(2)
+        await message.answer(text, reply_markup=builder.as_markup())
+
+
+@router.callback_query(AdminReportCallback.filter())
+async def process_admin_report(callback: CallbackQuery, callback_data: AdminReportCallback):
+    if not is_admin(callback.from_user.id):
+        await callback.answer()
+        return
+
+    reports = await get_pending_reports()
+    r = next((x for x in reports if x["id"] == callback_data.report_id), None)
+    if not r:
+        await callback.answer("Жалоба уже обработана")
+        return
+
+    await resolve_report(callback_data.report_id, callback_data.action)
+    if callback_data.action == "ban":
+        tid = await get_telegram_id_by_user_id(r["reported_user_id"])
+        if tid:
+            await ban_user_by_telegram_id(tid, f"По жалобе #{callback_data.report_id}")
+    await callback.message.edit_text(callback.message.text + "\n\n✅ Обработано")
+    await callback.answer()
+
+
+@router.message(Command("admin_stats"))
+async def cmd_admin_stats(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+
+    stats = await get_daily_stats()
+    lines = ["📊 <b>Статистика по дням</b>\n"]
+    for d, count in stats:
+        lines.append(f"{d}: +{count} пользователей")
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("admin_unban"))
+async def cmd_unban(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("Использование: /admin_unban 123456789")
+        return
+
+    try:
+        tid = int(parts[1])
+    except ValueError:
+        await message.answer("telegram_id — число")
+        return
+
+    if await unban_user(tid):
+        await message.answer(f"✅ Пользователь {tid} разбанен")
+    else:
+        await message.answer("Пользователь не найден")
 
 
 @router.message(Command("admin_broadcast"))
